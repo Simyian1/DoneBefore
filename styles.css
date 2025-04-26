@@ -1,22 +1,61 @@
-/* style.css */
+/* styles.css */
 body {
   font-family: sans-serif;
   display: flex;
-  height: 100vh;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
+  padding: 2rem;
 }
+
 .search-container {
   display: flex;
   gap: 0.5rem;
+  margin-bottom: 1rem;
 }
+
 #search-input {
   padding: 0.5rem;
   font-size: 1rem;
 }
+
 #search-button {
   padding: 0.5rem 1rem;
   font-size: 1rem;
   cursor: pointer;
+  color: aqua;
 }
 
+/* Results styling */
+#results {
+  width: 100%;
+  max-width: 600px;
+}
+
+.result-item {
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.result-item h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.1rem;
+}
+
+.result-item .url {
+  font-size: 0.9rem;
+  color: #0066cc;
+  margin-bottom: 0.5rem;
+  display: block;
+}
+
+.result-item .match {
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+}
+
+.result-item .snippet {
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
