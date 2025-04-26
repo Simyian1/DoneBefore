@@ -1,112 +1,154 @@
 // script.js
 
+// 1. Grab your DOM elements
 const inputEl   = document.getElementById('search-input');
 const buttonEl  = document.getElementById('search-button');
-const resultsEl = document.getElementById('results');
+const generalEl = document.getElementById('general-results');
+const patentEl  = document.getElementById('patent-results');
+const ipEl      = document.getElementById('ip-results');
 
+// 2. On button click, validate and launch all three searches
 buttonEl.addEventListener('click', () => {
-  const rawQuery = inputEl.value;
-  if (!rawQuery.trim()) {
+  const rawQuery = inputEl.value.trim();
+  if (!rawQuery) {
     alert('Please enter some keywords before searching!');
     return;
   }
-  performSearch(rawQuery);
+
+  // Clear previous results & kick off searches
+  [generalEl, patentEl, ipEl].forEach(el => el.innerHTML = '');
+  runWebSearch(rawQuery, generalEl, /*siteFilter=*/ '');
+  runWebSearch(rawQuery, patentEl,  'site:patents.google.com');
+  runIPSearch(rawQuery, ipEl);
 });
 
-function performSearch(rawQuery) {
-  // 1) clear old results
-  resultsEl.innerHTML = '';
 
-  // 2) prepare query for URL
-  const query  = encodeURIComponent(rawQuery.trim());
-  const apiKey = 'AIzaSyAsc1x4UdiiFbVqZtojJeQkl9nMvin4sgc';
-  const cxId   = '9752e413fdc3d4d91';
-  const url    = `https://www.googleapis.com/customsearch/v1?key=${apiKey}`
-               + `&cx=${cxId}`
-               + `&q=${query}`;
+/**
+ * runWebSearch → Google CSE for general or patent results
+ */
+function runWebSearch(rawQuery, containerEl, siteFilter) {
+  const q = siteFilter
+    ? `${rawQuery} ${siteFilter}`
+    : rawQuery;
 
-  // 3) show a “loading” message
-  const loading = document.createElement('p');
-  loading.textContent = 'Searching…';
-  resultsEl.appendChild(loading);
+  const url = new URL('https://www.googleapis.com/customsearch/v1');
+  url.searchParams.set('key', 'AIzaSyAsc1x4UdiiFbVqZtojJeQkl9nMvin4sgc');
+  url.searchParams.set('cx',  '9752e413fdc3d4d91');
+  url.searchParams.set('q',   q);
+  url.searchParams.set('num', '10');
 
+  containerEl.textContent = 'Loading…';
   fetch(url)
-    .then(async response => {
-      const payload = await response.json();
-      if (!response.ok) {
-        console.error('Google API error detail:', payload.error);
-        throw new Error(`Google API Error ${payload.error.code}: ${payload.error.message}`);
+    .then(r => r.json().then(data => {
+      if (!r.ok) throw new Error(data.error?.message || r.statusText);
+      return data.items || [];
+    }))
+    .then(items => {
+      containerEl.innerHTML = '';
+      if (items.length === 0) {
+        containerEl.textContent = 'No results found.';
+        return;
       }
-      return payload;
-    })
-    .then(data => {
-      // remove “Searching…”
-      resultsEl.innerHTML = '';
 
-      const items        = data.items || [];
-      const totalResults = data.searchInformation?.totalResults || '0';
-
-      // show total hits
-      const header = document.createElement('p');
-      header.innerHTML = `<strong>Total hits:</strong> ${totalResults} — showing ${items.length} results below`;
-      resultsEl.appendChild(header);
-
+      // split your rawQuery into keywords
+      const kws = rawQuery.toLowerCase().split(/\s+/);
       items.forEach(item => {
+        const text = (item.title + ' ' + item.snippet).toLowerCase();
+        const matched = kws.filter(k => text.includes(k)).length;
+        const similarity = (matched / kws.length) * 100;
+
         const card = document.createElement('div');
         card.className = 'result-item';
 
-        // title + link
+        // Title + link
         const h3 = document.createElement('h3');
-        const a  = document.createElement('a');
-        a.href       = item.link;
-        a.text       = item.title;
-        a.target     = '_blank';
-        a.rel        = 'noopener';
-        h3.appendChild(a);
+        h3.innerHTML = `<a href="${item.link}" target="_blank" rel="noopener">${item.title}</a>`;
         card.appendChild(h3);
 
         // URL
-        const urlSpan = document.createElement('span');
-        urlSpan.className = 'url';
-        urlSpan.textContent = item.link;
-        card.appendChild(urlSpan);
+        card.innerHTML += `<span class="url">${item.link}</span>`;
 
-        // compute match %
-        const title   = item.title.toLowerCase();
-        const snippet = item.snippet.toLowerCase();
-        const keyword = rawQuery.toLowerCase().trim();
-        const matchesInTitle   = (title.match(new RegExp(keyword, 'gi')) || []).length;
-        const matchesInSnippet = (snippet.match(new RegExp(keyword, 'gi')) || []).length;
-        const totalWords       = title.split(/\s+/).length + snippet.split(/\s+/).length;
-        const percentMatch     = totalWords
-                                  ? ((matchesInTitle + matchesInSnippet) / totalWords) * 100
-                                  : 0;
+        // Similarity
+        card.innerHTML += `<p class="match">Similarity: ${similarity.toFixed(1)}%</p>`;
 
-        const matchP = document.createElement('p');
-        matchP.className = 'match';
-        matchP.textContent = `Match: ${percentMatch.toFixed(1)}%`;
-        card.appendChild(matchP);
+        // Snippet
+        card.innerHTML += `<p class="snippet">${item.snippet}</p>`;
 
-        // snippet
-        const snippetP = document.createElement('p');
-        snippetP.className = 'snippet';
-        snippetP.textContent = item.snippet;
-        card.appendChild(snippetP);
-
-        resultsEl.appendChild(card);
+        containerEl.appendChild(card);
       });
-
-      if (items.length === 0) {
-        const none = document.createElement('p');
-        none.textContent = 'No results found.';
-        resultsEl.appendChild(none);
-      }
     })
     .catch(err => {
-      resultsEl.innerHTML = '';
-      console.error('Search error caught:', err);
-      const errP = document.createElement('p');
-      errP.textContent = `Search failed: ${err.message}`;
-      resultsEl.appendChild(errP);
+      containerEl.textContent = `Error: ${err.message}`;
+      console.error(err);
+    });
+}
+
+
+/**
+ * runIPSearch → USPTO Trademark API
+ * Docs: https://developer.uspto.gov/data/bulk-search#/trademarks
+ */
+function runIPSearch(rawQuery, containerEl) {
+  // Build a Trademark search against the USPTO IBD API
+  const endpoint = 'https://developer.uspto.gov/ibd-api/v1/trademark';
+  const params = new URLSearchParams({
+    searchText: rawQuery,
+    rows:       '10',
+    start:      '0'
+  }).toString();
+
+  containerEl.textContent = 'Loading…';
+  fetch(`${endpoint}?${params}`)
+    .then(r => r.json())
+    .then(data => {
+      containerEl.innerHTML = '';
+      const items = data.response?.docs || [];
+      if (items.length === 0) {
+        containerEl.textContent = 'No IP (trademark) results found.';
+        return;
+      }
+
+      // split your rawQuery into keywords
+      const kws = rawQuery.toLowerCase().split(/\s+/);
+
+      items.forEach(doc => {
+        // title is the mark name, snippet use goodsServicesDescription
+        const title = doc.markLiteral || '<Unnamed>';
+        const desc  = doc.goodsServicesDescription || '';
+        const text  = (title + ' ' + desc).toLowerCase();
+        const matched = kws.filter(k => text.includes(k)).length;
+        const similarity = (matched / kws.length) * 100;
+
+        const card = document.createElement('div');
+        card.className = 'result-item';
+
+        // Title & Registration Number
+        const h3 = document.createElement('h3');
+        h3.innerHTML = `
+          <a href="https://tsdrapi.uspto.gov/ts/cd/case/${doc.registrationNumber}" 
+             target="_blank" rel="noopener">
+            ${title}
+          </a>
+          <small>Reg#: ${doc.registrationNumber || 'N/A'}</small>
+        `;
+        card.appendChild(h3);
+
+        // Owner
+        if (doc.markOwnerName) {
+          card.innerHTML += `<p><strong>Owner:</strong> ${doc.markOwnerName}</p>`;
+        }
+
+        // Similarity
+        card.innerHTML += `<p class="match">Similarity: ${similarity.toFixed(1)}%</p>`;
+
+        // Goods/Services snippet
+        card.innerHTML += `<p class="snippet">${desc}</p>`;
+
+        containerEl.appendChild(card);
+      });
+    })
+    .catch(err => {
+      containerEl.textContent = `Error: ${err.message}`;
+      console.error(err);
     });
 }
